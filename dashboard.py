@@ -10,7 +10,7 @@ import streamlit as st
 
 from genops import config
 from genops.policy_engine import load_policy, evaluate
-from genops.agent import extract_intent, reasoning_trace, gen_instance_name
+from genops.agent import extract_intent, reasoning_trace, gen_instance_name, speak
 from genops.terraform_gen import generate_hcl
 from genops.plan_engine import simulate_plan
 from genops.provisioner import apply
@@ -35,6 +35,8 @@ def render_message(m: dict):
 
     elif kind == "blocked":
         v = m["payload"]
+        if m.get("say"):
+            st.markdown(m["say"])
         st.error(f"❌ Blocked by InfoSec policy — matched `{v.get('matched')}` "
                  f"(severity: {v.get('severity')})")
         st.markdown(f"**Why:** {v['reason']}")
@@ -51,6 +53,8 @@ def render_message(m: dict):
         p = m["payload"]
         plan = p["plan"]
         intent = p["intent"]
+        if p.get("say"):
+            st.markdown(p["say"])
         st.markdown(f"**Plan ready for `{p['instance_name']}`** — stack "
                     f"`{intent['stack']}`, TTL {intent['ttl_hours']}h.")
         with st.expander("🧠 Agent reasoning", expanded=False):
@@ -131,17 +135,19 @@ if prompt:
 
             if not verdict["compliant"]:
                 status.update(label="❌ Blocked by policy", state="error")
+                say = speak(prompt, intent, verdict)
                 msg = {"role": "assistant", "kind": "blocked",
-                       "payload": verdict, "trace": trace}
+                       "payload": verdict, "trace": trace, "say": say}
                 log_audit([ts(), "-", intent["stack"], "BLOCKED", dur, mode])
             else:
                 st.write("Generating Terraform & planning impact…")
                 name = gen_instance_name()
                 hcl = generate_hcl(intent, name)
                 plan = simulate_plan(intent, name)
+                say = speak(prompt, intent, verdict)
                 status.update(label="✅ Compliant — plan ready", state="complete")
                 payload = {"intent": intent, "verdict": verdict, "trace": trace,
-                           "hcl": hcl, "plan": plan, "instance_name": name}
+                           "hcl": hcl, "plan": plan, "instance_name": name, "say": say}
                 msg = {"role": "assistant", "kind": "result", "payload": payload}
                 st.session_state.pending = payload
                 log_audit([ts(), name, intent["stack"], "APPROVED", dur, mode])
