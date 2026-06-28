@@ -1,9 +1,11 @@
 """
 agent.py
-The agent "brain". Three jobs:
-  1. extract_intent  -> turn a natural-language request into structured intent
-  2. reasoning_trace -> produce the visible chain-of-thought the UI shows
-  3. speak           -> a natural-language reply, so it talks like an AI agent
+The agent "brain". Jobs:
+  1. classify_message -> is this a deploy request or a general question?
+  2. answer_question  -> conversational reply to non-deploy messages
+  3. extract_intent   -> turn a deploy request into structured intent
+  4. reasoning_trace  -> the visible chain-of-thought the UI shows
+  5. speak            -> a natural-language reply for deploy requests
 
 Uses Gemini if a key is configured; otherwise falls back to deterministic logic
 so the demo never breaks.
@@ -105,8 +107,6 @@ def extract_intent(prompt: str) -> dict:
             data = json.loads(resp.text.strip())
             return _normalize(data, prompt, "gemini")
         except Exception:
-            # Any API hiccup -> deterministic fallback. The demo stays alive,
-            # but unlike the old code this fallback does NOT weaken the policy check.
             pass
     return _heuristic_intent(prompt)
 
@@ -186,3 +186,87 @@ def speak(prompt: str, intent: dict, verdict: dict) -> str:
                 f"the same job securely. Want me to set that up?")
     return (f"I can't provision that — {verdict.get('matched')} is blocked by policy and "
             f"there's no compliant alternative I can offer here.")
+
+
+# --------------------------------------------------------------------------- #
+#  Router: is this a provisioning request, or a general question/greeting?
+# --------------------------------------------------------------------------- #
+_DEPLOY_VERBS = ["deploy", "provision", "spin up", "spin me", "set up", "setup",
+                 "create", "launch", "build me", "boot", "stand up", "give me a",
+                 "i need a", "i want a", "make me a"]
+
+_CLASSIFY_PROMPT = """You route messages for a cloud-provisioning agent.
+Classify the user's message as exactly one word:
+- "deploy" if they are asking to create/provision/spin up an environment, sandbox,
+  server, or piece of infrastructure (even casually).
+- "question" if they are asking what you can do, how you work, greeting you, or
+  anything that is NOT a request to actually build infrastructure.
+
+Message: "{prompt}"
+Answer with only one word: deploy OR question."""
+
+
+def classify_message(prompt: str) -> str:
+    """Return 'deploy' or 'question'. Gemini if available, else keyword heuristic."""
+    key = config.GEMINI_API_KEY
+    if key:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(config.GEMINI_MODEL)
+            resp = model.generate_content(_CLASSIFY_PROMPT.format(prompt=prompt))
+            ans = (resp.text or "").strip().lower()
+            if "deploy" in ans:
+                return "deploy"
+            if "question" in ans:
+                return "question"
+        except Exception:
+            pass
+    # Heuristic fallback: question phrasing wins even if a deploy verb appears
+    # ("what can you create for me?" is a question, not a deploy order).
+    t = prompt.lower().strip()
+    question_lead = ("what", "how", "who", "why", "when", "where", "can you",
+                     "could you", "do you", "are you", "tell me", "explain",
+                     "hi", "hey", "hello")
+    if t.endswith("?") or t.startswith(question_lead):
+        return "question"
+    return "deploy" if any(v in t for v in _DEPLOY_VERBS) else "question"
+
+
+_ANSWER_PROMPT = """You are the Autonomous GenOps agent — a friendly, concise cloud
+infrastructure assistant. You help people provision secure, ephemeral cloud sandboxes
+by describing them in plain English. You validate every request against an enterprise
+security policy and can suggest compliant alternatives when something is restricted.
+
+You can create sandboxes on these approved stacks: {stacks}.
+Restricted examples you block (and the alternative you suggest): telnet -> openssh-server,
+ftp -> sftp, teamviewer -> IAP. Crypto-mining and offensive tooling are hard-blocked.
+
+The user said: "{prompt}"
+
+Reply in 2-4 natural sentences, first person ("I"). If they asked what you can do,
+explain briefly and invite them to describe what they need. Do NOT use markdown
+headers or bullet points. Just talk."""
+
+
+def answer_question(prompt: str, ledger: dict) -> str:
+    """Conversational answer to a non-deploy message."""
+    stacks = ", ".join(ledger.get("approved_stacks", []))
+    key = config.GEMINI_API_KEY
+    if key:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(config.GEMINI_MODEL)
+            resp = model.generate_content(
+                _ANSWER_PROMPT.format(prompt=prompt, stacks=stacks))
+            txt = (resp.text or "").strip()
+            if txt:
+                return txt
+        except Exception:
+            pass
+    # Templated fallback.
+    return (f"I'm your GenOps provisioning agent — describe the environment you need in "
+            f"plain English and I'll validate it against our security policy, show you the "
+            f"impact, and provision it once you confirm. I can set up sandboxes on: {stacks}. "
+            f"What would you like to build?")
