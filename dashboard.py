@@ -3,14 +3,17 @@ dashboard.py
 Conversational front-end for Autonomous GenOps. Run:  streamlit run dashboard.py
 
 Flow per message:
-  understand -> validate (policy) -> if compliant: generate TF + preview impact
-  -> wait for human confirm -> apply (simulated in DEMO mode).
+  classify (question vs deploy)
+   - question -> answer conversationally
+   - deploy   -> validate (policy) -> generate TF + preview impact
+                 -> wait for human confirm -> apply (simulated in DEMO mode).
 """
 import streamlit as st
 
 from genops import config
 from genops.policy_engine import load_policy, evaluate
-from genops.agent import extract_intent, reasoning_trace, gen_instance_name, speak
+from genops.agent import (extract_intent, reasoning_trace, gen_instance_name,
+                          speak, classify_message, answer_question)
 from genops.terraform_gen import generate_hcl
 from genops.plan_engine import simulate_plan
 from genops.provisioner import apply
@@ -122,6 +125,17 @@ if prompt:
     with st.chat_message("assistant"):
         with st.status("🧠 Agent working…", expanded=True) as status:
             with Timer() as t:
+                st.write("Reading your message…")
+                kind = classify_message(prompt)
+
+                if kind == "question":
+                    st.write("Answering your question…")
+                    reply = answer_question(prompt, LEDGER)
+                    status.update(label="💬 Replied", state="complete")
+                    msg = {"role": "assistant", "kind": "text", "text": reply}
+                    st.session_state.messages.append(msg)
+                    st.rerun()
+
                 st.write("Parsing conversational intent…")
                 intent = extract_intent(prompt)
                 st.write(f"→ stack `{intent['stack']}`, TTL {intent['ttl_hours']}h "
