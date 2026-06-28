@@ -1,0 +1,150 @@
+{
+  "policy_version": "2.0",
+  "last_updated": "2026-06-27",
+  "owner": "InfoSec / Cloud Governance",
+  "enforcement_mode": "block",
+  "_enforcement_modes": "block = deny non-compliant requests | warn = allow but flag | audit = allow + log only",
+
+  "ttl": {
+    "default_hours": 1,
+    "max_hours": 12
+  },
+
+  "approved_stacks": [
+    "nginx",
+    "apache2",
+    "nodejs",
+    "python3",
+    "static-html",
+    "postgresql",
+    "redis"
+  ],
+
+  "allowed_gcp_services": [
+    "google_compute_instance",
+    "google_storage_bucket",
+    "google_cloud_run"
+  ],
+
+  "denied_gcp_services": [
+    "google_compute_firewall_open_all",
+    "google_kms_export_key"
+  ],
+
+  "restricted_software": [
+    {
+      "name": "telnet",
+      "aliases": ["telnetd", "in.telnetd"],
+      "category": "insecure-protocol",
+      "severity": "high",
+      "reason": "Telnet transmits credentials and session data in cleartext, violating the data-in-transit encryption standard.",
+      "suggested_alternative": "openssh-server",
+      "alternative_note": "Use SSH for encrypted remote shell access. It is on the approved baseline."
+    },
+    {
+      "name": "ftp",
+      "aliases": ["vsftpd", "ftpd", "proftpd"],
+      "category": "insecure-protocol",
+      "severity": "high",
+      "reason": "Plain FTP sends credentials and files unencrypted and is disallowed for any data transfer.",
+      "suggested_alternative": "sftp (openssh-server)",
+      "alternative_note": "SFTP over SSH, or FTPS with TLS, satisfies the encryption-in-transit control."
+    },
+    {
+      "name": "rsh",
+      "aliases": ["rlogin", "rexec", "rsh-server"],
+      "category": "insecure-protocol",
+      "severity": "high",
+      "reason": "Legacy r-services perform no encryption and rely on trust-host authentication, which is prohibited.",
+      "suggested_alternative": "openssh-server",
+      "alternative_note": "SSH replaces all r-command functionality securely."
+    },
+    {
+      "name": "teamviewer",
+      "aliases": ["anydesk", "vnc", "tightvnc"],
+      "category": "unsanctioned-remote-access",
+      "severity": "high",
+      "reason": "Third-party remote-access tools bypass the corporate identity perimeter and are not permitted on provisioned instances.",
+      "suggested_alternative": "GCP IAP TCP forwarding",
+      "alternative_note": "Identity-Aware Proxy provides audited, SSO-backed remote access without exposing a port."
+    },
+    {
+      "name": "ngrok",
+      "aliases": ["localtunnel", "cloudflared-tunnel", "frp"],
+      "category": "unsanctioned-tunnel",
+      "severity": "high",
+      "reason": "Reverse tunnels expose internal services to the public internet outside of network governance.",
+      "suggested_alternative": "Cloud Load Balancer + IAP",
+      "alternative_note": "Use a managed load balancer with IAP for controlled external exposure."
+    },
+    {
+      "name": "tor",
+      "aliases": ["tor-browser", "torbrowser-launcher", "i2p"],
+      "category": "anonymizer",
+      "severity": "critical",
+      "reason": "Anonymizing networks defeat egress monitoring and are prohibited on corporate infrastructure.",
+      "suggested_alternative": null,
+      "alternative_note": "No compliant alternative. If anonymized testing is required, request an isolated research enclave via InfoSec."
+    },
+    {
+      "name": "php5",
+      "aliases": ["php5.6", "php-5"],
+      "category": "end-of-life",
+      "severity": "medium",
+      "reason": "PHP 5.x is end-of-life and receives no security patches, violating the supported-software standard.",
+      "suggested_alternative": "php8.2",
+      "alternative_note": "Use a currently supported PHP 8.x release."
+    },
+    {
+      "name": "python2",
+      "aliases": ["python2.7", "python-2"],
+      "category": "end-of-life",
+      "severity": "medium",
+      "reason": "Python 2 reached end-of-life in 2020 and is no longer patched.",
+      "suggested_alternative": "python3",
+      "alternative_note": "python3 is on the approved baseline."
+    },
+    {
+      "name": "redis-unauthenticated",
+      "aliases": ["redis-open", "redis-no-auth"],
+      "category": "insecure-configuration",
+      "severity": "high",
+      "reason": "Redis exposed without a password and bound to a public interface is a frequent breach vector.",
+      "suggested_alternative": "redis (with requirepass + private IP) or Cloud Memorystore",
+      "alternative_note": "Redis is approved only when authenticated and bound to a private network."
+    },
+    {
+      "name": "nmap",
+      "aliases": ["masscan", "zmap"],
+      "category": "dual-use-security-tool",
+      "severity": "medium",
+      "reason": "Network scanners are restricted to approved security testing and require explicit authorization.",
+      "suggested_alternative": "Request via InfoSec security-testing workflow",
+      "alternative_note": "Permitted on approval for designated pentest engagements only."
+    }
+  ],
+
+  "prohibited_categories": [
+    {
+      "category": "crypto-mining",
+      "keywords": ["xmrig", "cgminer", "ethminer", "minerd", "nicehash", "cryptominer", "coinhive"],
+      "severity": "critical",
+      "reason": "Cryptocurrency mining is an unauthorized use of compute resources and is hard-blocked.",
+      "suggested_alternative": null
+    },
+    {
+      "category": "p2p-filesharing",
+      "keywords": ["bittorrent", "transmission", "qbittorrent", "deluge", "torrent"],
+      "severity": "high",
+      "reason": "Peer-to-peer file sharing carries legal and malware risk and is not permitted.",
+      "suggested_alternative": "Google Cloud Storage"
+    },
+    {
+      "category": "offensive-tooling",
+      "keywords": ["metasploit", "mimikatz", "cobaltstrike", "hashcat", "responder"],
+      "severity": "critical",
+      "reason": "Offensive security frameworks are restricted to the sanctioned red-team environment.",
+      "suggested_alternative": null
+    }
+  ]
+}
