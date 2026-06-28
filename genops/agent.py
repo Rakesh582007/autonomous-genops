@@ -1,11 +1,12 @@
 """
 agent.py
-The agent "brain". Two jobs:
+The agent "brain". Three jobs:
   1. extract_intent  -> turn a natural-language request into structured intent
   2. reasoning_trace -> produce the visible chain-of-thought the UI shows
+  3. speak           -> a natural-language reply, so it talks like an AI agent
 
-Uses Gemini if a key is configured; otherwise falls back to a deterministic
-heuristic so the demo never breaks.
+Uses Gemini if a key is configured; otherwise falls back to deterministic logic
+so the demo never breaks.
 """
 import json
 import re
@@ -94,7 +95,9 @@ def extract_intent(prompt: str) -> dict:
         try:
             import google.generativeai as genai
             genai.configure(api_key=key)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            # gemini-flash-latest auto-points to the current fast model
+            # (gemini-1.5-flash was shut down; this won't go stale).
+            model = genai.GenerativeModel(config.GEMINI_MODEL)
             resp = model.generate_content(
                 _INTENT_PROMPT.format(prompt=prompt),
                 generation_config={"response_mime_type": "application/json"},
@@ -130,3 +133,56 @@ def reasoning_trace(intent: dict, verdict: dict) -> list:
         else:
             steps.append("No compliant alternative exists for this category — hard stop.")
     return steps
+
+
+_SPEAK_PROMPT = """You are the Autonomous GenOps agent — a friendly, concise cloud
+infrastructure assistant. A user asked: "{prompt}"
+
+You parsed this intent: stack={stack}, TTL={ttl}h.
+Policy verdict: compliant={compliant}{matched_part}.
+
+Write a short, natural 2-3 sentence reply to the user, first person ("I"), as if you
+are an AI agent talking to them. {tone}
+Do NOT use markdown headers or bullet points. Just talk."""
+
+
+def speak(prompt: str, intent: dict, verdict: dict) -> str:
+    """A natural-language reply from the agent. Gemini if available, else templated."""
+    key = config.GEMINI_API_KEY
+    if key:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(config.GEMINI_MODEL)
+            if verdict["compliant"]:
+                tone = ("Confirm you understood, mention you've prepared a Terraform plan "
+                        "and will show the environment impact for them to confirm.")
+                matched_part = ""
+            else:
+                alt = verdict.get("alternative")
+                tone = (f"Politely explain it's blocked for security and suggest "
+                        f"'{alt}' as a compliant alternative." if alt else
+                        "Politely explain it's blocked for security with no safe alternative.")
+                matched_part = f", blocked on '{verdict.get('matched')}'"
+            resp = model.generate_content(_SPEAK_PROMPT.format(
+                prompt=prompt, stack=intent["stack"], ttl=intent["ttl_hours"],
+                compliant=verdict["compliant"], matched_part=matched_part, tone=tone))
+            txt = (resp.text or "").strip()
+            if txt:
+                return txt
+        except Exception:
+            pass
+
+    # Templated fallback — still reads naturally.
+    if verdict["compliant"]:
+        return (f"Got it — I'll set up a {intent['stack']} sandbox with a "
+                f"{intent['ttl_hours']}-hour lifespan. I've prepared the Terraform and "
+                f"a preview of exactly what it'll create. Take a look below and confirm "
+                f"when you're ready.")
+    alt = verdict.get("alternative")
+    if alt:
+        return (f"I can't provision that — {verdict.get('matched')} is restricted by our "
+                f"security policy. I'd suggest {alt} instead, which is approved and does "
+                f"the same job securely. Want me to set that up?")
+    return (f"I can't provision that — {verdict.get('matched')} is blocked by policy and "
+            f"there's no compliant alternative I can offer here.")
