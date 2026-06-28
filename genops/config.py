@@ -27,6 +27,10 @@ def get_secret(name: str, default=None):
 # heuristic brain so the live demo always works.
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 
+# Current fast model. gemini-flash-latest auto-points to the live model
+# (gemini-1.5-flash was shut down in 2026), so this won't go stale.
+GEMINI_MODEL = get_secret("GEMINI_MODEL", "gemini-flash-latest")
+
 # DEMO_MODE=true  -> provisioning is simulated (safe for public demo, no cloud cost)
 # DEMO_MODE=false -> real terraform apply path (only enable locally with creds)
 DEMO_MODE = str(get_secret("DEMO_MODE", "true")).lower() in ("1", "true", "yes")
